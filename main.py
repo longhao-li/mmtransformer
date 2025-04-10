@@ -1,20 +1,23 @@
 import argparse
+import math
 import numpy
 import os
+import sys
 import torch
 import torchsummary
+from datetime import datetime
 from model import MMTransformer
-from torch import Tensor
+from torch import Tensor, Generator
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
-from typing import Tuple
+from typing import Tuple, Final
 
 
-POINTCLOUD_FRAMES_PER_SECOND: int = 24
-POINTCLOUD_LENGTH: int = 64
-POINTCLOUD_DIMENSIONS: int = 3
-KEYPOINT_LENGTH: int = 18
-KEYPOINT_DIMENSIONS: int = 3
+POINTCLOUD_FRAMES_PER_SECOND: Final[int] = 24
+POINTCLOUD_LENGTH: Final[int] = 64
+POINTCLOUD_DIMENSIONS: Final[int] = 3
+KEYPOINT_LENGTH: Final[int] = 18
+KEYPOINT_DIMENSIONS: Final[int] = 3
 
 
 class PointCloudDataset(Dataset):
@@ -82,6 +85,7 @@ def parse_args() -> argparse.Namespace:
     train_parser.add_argument("--epochs", type=int, default=200, help="Number of epochs")
     train_parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
     train_parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
+    train_parser.add_argument("--mix-frames", type=int, default=120, help="Number of frames to mix for temporal fusion")
 
     return parser.parse_args()
 
@@ -105,12 +109,95 @@ def train(args: argparse.Namespace) -> None:
 
     print(f"Using device: {device}")
 
-    # Load model.
+    # Prepare model.
     model = None
     if args.model == "mmtransformer":
         model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
     else:
         raise ValueError(f"Unsupported model: {args.model}")
+
+    model.to(device=device)
+
+    # Load datasets.
+    train_data = PointCloudDataset(os.path.join(args.dataset, "train"), args.mix_frames, device=device)
+    validate_data = PointCloudDataset(os.path.join(args.dataset, "validate"), args.mix_frames, device=device)
+
+    # Prepare for model saving.
+    model_directory = os.path.join("runs", "{} {}".format(args.model, datetime.now().strftime("%Y-%m-%d %H-%M-%S")))
+    if not os.path.exists(model_directory):
+        os.makedirs(model_directory)
+    
+    # Prepare for TensorBoard logging.
+    writer = SummaryWriter(log_dir=model_directory)
+    writer.add_text("Model", str(model), 0)
+    writer.add_text("Model Summary", str(torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device=device)), 0)
+
+    # Prepare for training.
+    best_loss = math.inf
+    loss_fn   = torch.nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    for i in range(args.epochs):
+        print(f"Training epoch {i + 1}/{args.epochs}")
+        sys.stdout.flush()
+
+        model.train()
+        train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, generator = Generator(device=device), drop_last=True)
+        for j, (x, y) in enumerate(train_loader):
+            x = x.to(device=device)
+            y = y.to(device=device)
+
+            optimizer.zero_grad()
+            output = model(x)
+            loss = loss_fn(output, y)
+            loss.backward()
+            optimizer.step()
+
+            writer.add_scalar("Loss/train", loss.item(), i * len(train_loader) + j)
+
+        # Validate the model.
+        model.eval()
+        validate_loader = DataLoader(validate_data, batch_size=args.batch_size, shuffle=False, drop_last=True)
+        total_loss = 0.0
+        with torch.no_grad():
+            for j, (x, y) in enumerate(validate_loader):
+                x = x.to(device=device)
+                y = y.to(device=device)
+
+                output = model(x)
+                loss = loss_fn(output, y)
+                total_loss += loss.item()
+
+        avg_loss = total_loss / len(validate_loader)
+        writer.add_scalar("Loss/validate", avg_loss, i)
+
+        if avg_loss < best_loss:
+            best_loss = avg_loss
+            torch.save(model.state_dict(), os.path.join(model_directory, "best.pth"))
+        torch.save(model.state_dict(), os.path.join(model_directory, "last.pth"))
+
+    # Test the model.
+    print("Testing the model...")
+    test_data = PointCloudDataset(os.path.join(args.dataset, "test"), args.mix_frames, device=device)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False, generator = Generator(device=device), drop_last=True)
+    total_loss = 0.0
+    with torch.no_grad():
+        for j, (x, y) in enumerate(test_loader):
+            x = x.to(device=device)
+            y = y.to(device=device)
+
+            output = model(x)
+            loss = loss_fn(output, y)
+            total_loss += loss.item()
+    
+    # Calculate the average loss.
+    avg_loss = total_loss / len(test_loader)
+    print(f"Average test loss: {avg_loss}")
+    writer.add_scalar("Loss/test", avg_loss, args.epochs)
+
+    # Close the TensorBoard writer.
+    writer.close()
+    print("Training completed.")
 
 
 def main() -> None:
