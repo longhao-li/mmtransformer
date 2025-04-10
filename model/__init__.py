@@ -1,5 +1,5 @@
-from .mmtransformer import FeatureEncoder
+from .mmtransformer import MMTransformer
 
 __all__ = [
-    "FeatureEncoder"
+    "MMTransformer"
 ]

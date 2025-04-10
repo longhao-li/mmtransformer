@@ -1,6 +1,6 @@
 import argparse
 import torchsummary
-from model import FeatureEncoder
+from model import MMTransformer
 
 
 def parse_args() -> argparse.Namespace:
@@ -18,12 +18,12 @@ def summary(args: argparse.Namespace) -> None:
     """Print model summary."""
     model = None
     if args.model == "transformer":
-        model = FeatureEncoder(in_channels=3)
+        model = MMTransformer(key_points = 17, stack_length = 120, frame_length = 64)
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
     # Print the model summary.
-    torchsummary.summary(model, (64, 3), batch_dim=0, device="cpu")
+    torchsummary.summary(model, (120, 64, 3), batch_dim=0, device="cpu")
 
 
 def main() -> None:
