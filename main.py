@@ -62,7 +62,7 @@ class PointCloudDataset(Dataset):
                 continue
 
             x = self.inputs[i][index:index + self.mix_frames, :, :]
-            y = self.labels[i][index:index + self.mix_frames, :, :]
+            y = self.labels[i][index + self.mix_frames - 1, :, :]
 
             return x, y
 
