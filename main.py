@@ -4,8 +4,10 @@ import os
 import torch
 import torchsummary
 from model import MMTransformer
+from torch import Tensor
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
+from typing import Tuple
 
 
 POINTCLOUD_FRAMES_PER_SECOND: int = 24
@@ -13,6 +15,55 @@ POINTCLOUD_LENGTH: int = 64
 POINTCLOUD_DIMENSIONS: int = 3
 KEYPOINT_LENGTH: int = 18
 KEYPOINT_DIMENSIONS: int = 3
+
+
+class PointCloudDataset(Dataset):
+    def __init__(self, base_dir: str, mix_frames: int, device: str) -> None:
+        self.inputs = []
+        self.labels = []
+
+        self.mix_frames = mix_frames
+        self.total_length = 0
+
+        inputs_dir = os.path.join(base_dir, "pointcloud")
+        labels_dir = os.path.join(base_dir, "keypoint")
+
+        for file_name in os.listdir(inputs_dir):
+            # input directory must have exactly the same files as labels directory
+            input_file = os.path.join(inputs_dir, file_name)
+            label_file = os.path.join(labels_dir, file_name)
+
+            assert os.path.exists(label_file), f"Label file {file_name} not found in {labels_dir}"
+
+            input = torch.from_numpy(numpy.load(input_file, allow_pickle=False)).to(device=device)
+            label = torch.from_numpy(numpy.load(label_file, allow_pickle=False)).to(device=device)
+
+            assert input.size(0) == label.size(0), f"Input and label sizes do not match for {file_name}"
+
+            self.inputs.append(input)
+            self.labels.append(label)
+
+            self.total_length += input.size(0) - mix_frames + 1
+
+    def __len__(self) -> int:
+        return self.total_length
+
+    def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
+        if index >= self.total_length:
+            raise IndexError(f"Index {index} out of range")
+        
+        for i in range(len(self.inputs)):
+            max_index = self.inputs[i].size(0) - self.mix_frames + 1
+            if index >= max_index:
+                index -= max_index
+                continue
+
+            x = self.inputs[i][index:index + self.mix_frames, :, :]
+            y = self.labels[i][index:index + self.mix_frames, :, :]
+
+            return x, y
+
+        raise IndexError(f"Index {index} out of range")
 
 
 def parse_args() -> argparse.Namespace:
