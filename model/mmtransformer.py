@@ -58,17 +58,16 @@ class TemporalDecoder(Module):
 
 
 class MMTransformer(Module):
-    def __init__(self, key_points: int, stack_length: int, frame_length: int, num_encoder_layers: int = 6, num_decoder_layers: int = 12, dropout: float = 0.1) -> None:
+    def __init__(self, key_points: int, frame_length: int, num_encoder_layers: int = 6, num_decoder_layers: int = 12, dropout: float = 0.1) -> None:
         super(MMTransformer, self).__init__()
         self.key_points = key_points
         self.frame_length = frame_length
-        self.stack_length = stack_length
 
         self.feature_encoder = FeatureEncoder(in_channels=3, hidden=384, num_layers=num_encoder_layers, num_heads=12, dropout=dropout)
         self.temporal_decoder = TemporalDecoder(out_channels=3, hidden=frame_length, num_layers=num_decoder_layers, num_heads=8, dropout=dropout)
 
         self.output = Sequential(
-            Linear(stack_length * frame_length, 1024),
+            Linear(frame_length, 1024),
             ReLU(),
             Linear(1024, 512),
             ReLU(),
@@ -81,7 +80,6 @@ class MMTransformer(Module):
     def forward(self, x: Tensor) -> Tensor:
         batch_size, stack_size, length, channels = x.size()
 
-        assert stack_size == self.stack_length, f"Input stack size {stack_size} does not match expected stack size {self.stack_length}."
         assert length == self.frame_length, f"Input length {length} does not match expected length {self.frame_length}."
         assert channels == 3, f"Input channels {channels} must be 3."
 
@@ -90,10 +88,9 @@ class MMTransformer(Module):
         x = torch.max(x, dim=-1)[0] # max pooling (batch_size * stack_size, length, hidden) -> (batch_size * stack_size, length)
 
         x = x.reshape(batch_size, stack_size, length) # Reshape to (batch_size, stack_size, length)
-        x = self.temporal_decoder(x)
-        x = x.flatten(start_dim=1) # Flatten to (batch_size, stack_size * length)
+        x = self.temporal_decoder(x)[:, -1, :]
 
-        x = self.output(x) # (batch_size, stack_size * length) -> (batch_size, key_points * 3)
+        x = self.output(x) # (batch_size, length) -> (batch_size, key_points * 3)
         x = x.reshape(batch_size, self.key_points, 3)
 
         return x

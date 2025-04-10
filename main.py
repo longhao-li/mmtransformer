@@ -18,7 +18,7 @@ def summary(args: argparse.Namespace) -> None:
     """Print model summary."""
     model = None
     if args.model == "transformer":
-        model = MMTransformer(key_points = 17, stack_length = 120, frame_length = 64)
+        model = MMTransformer(key_points = 17, frame_length = 64)
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
