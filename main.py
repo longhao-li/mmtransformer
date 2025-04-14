@@ -6,7 +6,7 @@ import sys
 import torch
 import torchsummary
 from datetime import datetime
-from model import MMTransformer
+from model import MMTransformer, MMResidual
 from torch import Tensor, Generator
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
@@ -64,6 +64,10 @@ class PointCloudDataset(Dataset):
             x = self.inputs[i][index:index + self.mix_frames, :, :]
             y = self.labels[i][index + self.mix_frames - 1, :, :]
 
+            if self.mix_frames == 1:
+                x = x.squeeze(0)
+                y = y.squeeze(0)
+
             return x, y
 
         raise IndexError(f"Index {index} out of range")
@@ -95,11 +99,12 @@ def summary(args: argparse.Namespace) -> None:
     model = None
     if args.model == "mmtransformer":
         model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+        torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
+    elif args.model == "mmresidual":
+        model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+        torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
     else:
         raise ValueError(f"Unsupported model: {args.model}")
-
-    # Print the model summary.
-    torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
 
 
 def train(args: argparse.Namespace) -> None:
@@ -109,10 +114,26 @@ def train(args: argparse.Namespace) -> None:
 
     print(f"Using device: {device}")
 
+    # Prepare for model saving.
+    model_directory = os.path.join("runs", "{} {}".format(args.model, datetime.now().strftime("%Y-%m-%d %H-%M-%S")))
+    if not os.path.exists(model_directory):
+        os.makedirs(model_directory)
+
+    # Prepare for TensorBoard logging.
+    writer = SummaryWriter(log_dir=model_directory)
+
     # Prepare model.
     model = None
     if args.model == "mmtransformer":
         model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+        writer.add_text("Model", str(model), 0)
+        writer.add_text("Model Summary", str(torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device=device)), 0)
+    elif args.model == "mmresidual":
+        # MMResidual does not support mix_frames > 1
+        args.mix_frames = 1
+        model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+        writer.add_text("Model", str(model), 0)
+        writer.add_text("Model Summary", str(torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device=device)), 0)
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
@@ -121,16 +142,6 @@ def train(args: argparse.Namespace) -> None:
     # Load datasets.
     train_data = PointCloudDataset(os.path.join(args.dataset, "train"), args.mix_frames, device=device)
     validate_data = PointCloudDataset(os.path.join(args.dataset, "validate"), args.mix_frames, device=device)
-
-    # Prepare for model saving.
-    model_directory = os.path.join("runs", "{} {}".format(args.model, datetime.now().strftime("%Y-%m-%d %H-%M-%S")))
-    if not os.path.exists(model_directory):
-        os.makedirs(model_directory)
-    
-    # Prepare for TensorBoard logging.
-    writer = SummaryWriter(log_dir=model_directory)
-    writer.add_text("Model", str(model), 0)
-    writer.add_text("Model Summary", str(torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device=device)), 0)
 
     # Prepare for training.
     best_loss = math.inf
