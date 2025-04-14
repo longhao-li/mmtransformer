@@ -167,15 +167,26 @@ def train(args: argparse.Namespace) -> None:
         # Validate the model.
         model.eval()
         validate_loader = DataLoader(validate_data, batch_size=args.batch_size, shuffle=False, drop_last=True)
+
+        error_fn = torch.nn.L1Loss()
+
         total_loss = 0.0
+        total_error = 0.0
         with torch.no_grad():
             for j, (x, y) in enumerate(validate_loader):
                 output = model(x)
+
                 loss = loss_fn(output, y)
                 total_loss += loss.item()
 
+                error = error_fn(output, y)
+                total_error += error.item()
+
         avg_loss = total_loss / len(validate_loader)
         writer.add_scalar("Loss/validate", avg_loss, i)
+
+        avg_error = total_error / len(validate_loader)
+        writer.add_scalar("Error/validate", avg_error, i)
 
         if avg_loss < best_loss:
             best_loss = avg_loss
@@ -186,7 +197,10 @@ def train(args: argparse.Namespace) -> None:
     print("Testing the model...")
     test_data = PointCloudDataset(os.path.join(args.dataset, "test"), args.mix_frames, device=device)
     test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=False, generator = Generator(device=device), drop_last=True)
+
     total_loss = 0.0
+    total_error = 0.0
+
     with torch.no_grad():
         for j, (x, y) in enumerate(test_loader):
             x = x.to(device=device)
@@ -195,11 +209,17 @@ def train(args: argparse.Namespace) -> None:
             output = model(x)
             loss = loss_fn(output, y)
             total_loss += loss.item()
+
+            error = error_fn(output, y)
+            total_error += error.item()
     
     # Calculate the average loss.
     avg_loss = total_loss / len(test_loader)
     print(f"Average test loss: {avg_loss}")
     writer.add_scalar("Loss/test", avg_loss, args.epochs)
+
+    print(f"Average test error: {avg_error}")
+    writer.add_scalar("Error/test", avg_error, args.epochs)
 
     # Close the TensorBoard writer.
     writer.close()
