@@ -126,14 +126,10 @@ def train(args: argparse.Namespace) -> None:
     model = None
     if args.model == "mmtransformer":
         model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
-        writer.add_text("Model", str(model), 0)
-        writer.add_text("Model Summary", str(torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device=device)), 0)
     elif args.model == "mmresidual":
         # MMResidual does not support mix_frames > 1
         args.mix_frames = 1
         model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
-        writer.add_text("Model", str(model), 0)
-        writer.add_text("Model Summary", str(torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device=device)), 0)
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
@@ -154,17 +150,19 @@ def train(args: argparse.Namespace) -> None:
 
         model.train()
         train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True, generator = Generator(device=device), drop_last=True)
+        total_loss = 0.0
         for j, (x, y) in enumerate(train_loader):
-            x = x.to(device=device)
-            y = y.to(device=device)
-
             optimizer.zero_grad()
             output = model(x)
+
             loss = loss_fn(output, y)
+            total_loss += loss.item()
+
             loss.backward()
             optimizer.step()
 
-            writer.add_scalar("Loss/train", loss.item(), i * len(train_loader) + j)
+        avg_loss = total_loss / len(train_loader)
+        writer.add_scalar("Loss/train", avg_loss, i)
 
         # Validate the model.
         model.eval()
@@ -172,9 +170,6 @@ def train(args: argparse.Namespace) -> None:
         total_loss = 0.0
         with torch.no_grad():
             for j, (x, y) in enumerate(validate_loader):
-                x = x.to(device=device)
-                y = y.to(device=device)
-
                 output = model(x)
                 loss = loss_fn(output, y)
                 total_loss += loss.item()
