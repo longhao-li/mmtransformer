@@ -58,12 +58,12 @@ class TemporalDecoder(Module):
 
 
 class MMTransformer(Module):
-    def __init__(self, key_points: int, frame_length: int, num_encoder_layers: int = 6, num_decoder_layers: int = 12, dropout: float = 0.1) -> None:
+    def __init__(self, key_points: int, frame_length: int, num_encoder_layers: int = 3, num_decoder_layers: int = 6, dropout: float = 0.1) -> None:
         super(MMTransformer, self).__init__()
         self.key_points = key_points
         self.frame_length = frame_length
 
-        self.feature_encoder = FeatureEncoder(in_channels=3, hidden=384, num_layers=num_encoder_layers, num_heads=12, dropout=dropout)
+        self.feature_encoder = FeatureEncoder(in_channels=3, hidden=192, num_layers=num_encoder_layers, num_heads=12, dropout=dropout)
         self.temporal_decoder = TemporalDecoder(out_channels=3, hidden=frame_length, num_layers=num_decoder_layers, num_heads=8, dropout=dropout)
 
         self.output = Sequential(
