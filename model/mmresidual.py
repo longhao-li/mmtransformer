@@ -58,7 +58,7 @@ class ResidualStage(Module):
 
 
 class MMResidual(Module):
-    def __init__(self, key_points: int, frame_length: int, embed_dim: int = 64, dropout: float = 0.1) -> None:
+    def __init__(self, key_points: int, frame_length: int, embed_dim: int = 64, dropout: float = 0.5) -> None:
         super(MMResidual, self).__init__()
 
         self.key_points   = key_points

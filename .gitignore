@@ -175,3 +175,7 @@ cython_debug/
 
 # Training checkpoints:
 runs/
+
+# nohup
+nohup.out
+pid
