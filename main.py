@@ -5,8 +5,9 @@ import os
 import sys
 import torch
 import torchsummary
+import traceback
 from datetime import datetime
-from model import MMTransformer, MMResidual
+from model import MMPose, MMTransformer, MMResidual
 from torch import Tensor, Generator
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
@@ -103,6 +104,9 @@ def summary(args: argparse.Namespace) -> None:
     elif args.model == "mmresidual":
         model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
         torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
+    elif args.model == "mmpose":
+        model = MMPose(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+        torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
@@ -130,6 +134,10 @@ def train(args: argparse.Namespace) -> None:
         # MMResidual does not support mix_frames > 1
         args.mix_frames = 1
         model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "mmpose":
+        # MMPose does not support mix_frames > 1
+        args.mix_frames = 1
+        model = MMPose(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
     else:
         raise ValueError(f"Unsupported model: {args.model}")
 
@@ -240,4 +248,5 @@ if __name__ == "__main__":
         main()
     except Exception as e:
         print(f"Fatal Error: {e}")
+        print(f"Traceback: {traceback.format_exc()}")
         exit(1)
