@@ -177,5 +177,5 @@ cython_debug/
 runs/
 
 # nohup
-nohup.out
+nohup*.out
 pid
