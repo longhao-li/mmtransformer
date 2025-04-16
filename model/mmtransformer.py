@@ -1,6 +1,6 @@
 import torch
 from torch import Tensor
-from torch.nn import Module, Linear, TransformerEncoderLayer, TransformerDecoderLayer, Sequential, ModuleList, ReLU
+from torch.nn import Module, Linear, TransformerEncoderLayer, TransformerDecoderLayer, Sequential, ModuleList, ReLU, BatchNorm1d, Dropout
 
 
 class FeatureEncoder(Module):
@@ -55,6 +55,44 @@ class TemporalDecoder(Module):
             y = layer(x, y, tgt_mask=casual_mask, memory_mask=casual_mask, tgt_is_causal=True, memory_is_causal=True)
 
         return y
+
+
+class MMTransformerEncoder(Module):
+    def __init__(self, key_points: int, frame_length: int, num_layers: int = 4, dropout: float = 0.3) -> None:
+        super(MMTransformerEncoder, self).__init__()
+
+        self.key_points = key_points
+        self.frame_length = frame_length
+
+        self.encoder = FeatureEncoder(in_channels=3, hidden=128, num_layers=num_layers, num_heads=4, dropout=dropout)
+
+        self.output_fc1     = Linear(frame_length * 128, 512)
+        self.output_bn1     = BatchNorm1d(512)
+        self.output_fc2     = Linear(512, 256)
+        self.output_dropout = Dropout(0.3)
+        self.output_bn2     = BatchNorm1d(256)
+        self.output_fc3     = Linear(256, key_points * 3)
+
+    def forward(self, x: Tensor) -> Tensor:
+        batch_size, length, channels = x.size()
+
+        assert length == self.frame_length, f"Input length {length} does not match expected length {self.frame_length}."
+        assert channels == 3, f"Input channels {channels} must be 3."
+
+        x = self.encoder(x) # (batch_size, length, hidden)
+
+        x = x.flatten(start_dim=1) # Flatten to (batch_size, length * hidden)
+        x = self.output_fc1(x)
+        x = self.output_bn1(x)
+        x = torch.nn.functional.relu(x)
+        x = self.output_fc2(x)
+        x = self.output_dropout(x)
+        x = torch.nn.functional.relu(x)
+        x = self.output_bn2(x)
+        x = self.output_fc3(x)
+
+        x = x.view(batch_size, self.key_points, 3) # Reshape to (batch_size, key_points, 3)
+        return x
 
 
 class MMTransformer(Module):

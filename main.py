@@ -7,7 +7,7 @@ import torch
 import torchsummary
 import traceback
 from datetime import datetime
-from model import MMPose, MMTransformer, MMResidual, PointNet
+from model import MMPose, MMTransformer, MMTransformerEncoder, MMResidual, PointNet
 from torch import Tensor, Generator
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
@@ -101,6 +101,9 @@ def summary(args: argparse.Namespace) -> None:
     if args.model == "mmtransformer":
         model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
         torchsummary.summary(model, (120, POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
+    elif args.model == "mmtransformer_encoder":
+        model = MMTransformerEncoder(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+        torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
     elif args.model == "mmresidual":
         model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
         torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
@@ -111,7 +114,7 @@ def summary(args: argparse.Namespace) -> None:
         model = PointNet(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
         torchsummary.summary(model, (POINTCLOUD_LENGTH, POINTCLOUD_DIMENSIONS), batch_dim=0, device="cpu")
     else:
-        raise ValueError(f"Unsupported model: {args.model}")
+        raise ValueError(f"Unknown model name: {args.model}")
 
 
 def train(args: argparse.Namespace) -> None:
@@ -133,6 +136,10 @@ def train(args: argparse.Namespace) -> None:
     model = None
     if args.model == "mmtransformer":
         model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "mmtransformer_encoder":
+        # MMTransformerEncoder does not support mix_frames > 1
+        args.mix_frames = 1
+        model = MMTransformerEncoder(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
     elif args.model == "mmresidual":
         # MMResidual does not support mix_frames > 1
         args.mix_frames = 1
