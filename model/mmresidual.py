@@ -85,7 +85,7 @@ class MMResidual(Module):
         assert length == self.frame_length, f"Expected input length {self.frame_length}, but got {length}."
         assert channels == 3, f"Expected input channels 3, but got {channels}."
 
-        x = x.permute(0, 2, 1)  # Change shape from (batch_size, length, channels) to (batch_size, channels, length)
+        x = x.permute(0, 2, 1).contiguous()  # Change shape from (batch_size, length, channels) to (batch_size, channels, length)
 
         x = self.embedding(x)
         x = self.stage1(x)
