@@ -2,7 +2,9 @@ import argparse
 import math
 import numpy
 import os
+import requests
 import sys
+import time
 import torch
 import torchsummary
 import traceback
@@ -55,7 +57,7 @@ class PointCloudDataset(Dataset):
     def __getitem__(self, index: int) -> Tuple[Tensor, Tensor]:
         if index >= self.total_length:
             raise IndexError(f"Index {index} out of range")
-        
+
         for i in range(len(self.inputs)):
             max_index = self.inputs[i].size(0) - self.mix_frames + 1
             if index >= max_index:
@@ -91,6 +93,14 @@ def parse_args() -> argparse.Namespace:
     train_parser.add_argument("--lr", type=float, default=0.001, help="Learning rate")
     train_parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate")
     train_parser.add_argument("--mix-frames", type=int, default=120, help="Number of frames to mix for temporal fusion")
+
+    # Mock commands.
+    mock_parser = subparsers.add_parser("mock", help="Mock command")
+    mock_parser.add_argument("--model", type=str, required=True, help="Model name")
+    mock_parser.add_argument("--weight", type=str, required=True, help="Model weight file")
+    mock_parser.add_argument("--dataset", type=str, required=True, help="Dataset directory. Must contain pointcloud and keypoint as subdirectories")
+    mock_parser.add_argument("--mix-frames", type=int, default=120, help="Number of frames to mix for temporal fusion")
+    mock_parser.add_argument("--server", type=str, required=True, help="Server name")
 
     return parser.parse_args()
 
@@ -255,6 +265,67 @@ def train(args: argparse.Namespace) -> None:
     print("Training completed.")
 
 
+def mock(args: argparse.Namespace) -> None:
+    # Check if CUDA is available and set the device accordingly.
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    torch.set_default_device(device)
+
+    print(f"Using device: {device}")
+
+    # Prepare model.
+    model = None
+    if args.model == "mmtransformer":
+        model = MMTransformer(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "mmtransformer_encoder":
+        # MMTransformerEncoder does not support mix_frames > 1
+        args.mix_frames = 1
+        model = MMTransformerEncoder(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "mmresidual":
+        # MMResidual does not support mix_frames > 1
+        args.mix_frames = 1
+        model = MMResidual(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "mmpose":
+        # MMPose does not support mix_frames > 1
+        args.mix_frames = 1
+        model = MMPose(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "pointnet":
+        # PointNet does not support mix_frames > 1
+        args.mix_frames = 1
+        model = PointNet(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    elif args.model == "yogo":
+        # YOGO does not support mix_frames > 1
+        args.mix_frames = 1
+        model = YOGO(key_points=KEYPOINT_LENGTH, frame_length=POINTCLOUD_LENGTH)
+    else:
+        raise ValueError(f"Unsupported model: {args.model}")
+
+    # Load the model weights.
+    model.load_state_dict(torch.load(args.weight))
+    model.to(device=device)
+    model.eval()
+    print(f"Model {args.model} loaded with weights from {args.weight}")
+
+    # Load datasets. We use train dataset for mocking.
+    data = PointCloudDataset(os.path.join(args.dataset, "train"), args.mix_frames, device=device)
+
+    interval: Final[float] = 1.0 / POINTCLOUD_FRAMES_PER_SECOND
+    length: Final[int] = len(data)
+
+    index = 0
+    with torch.no_grad():
+        while True:
+            x, _ = data[index]
+            x = x.to(device=device).unsqueeze(0) # Add batch dimension
+            y = model(x)
+
+            # Remove batch dimension
+            x = x.squeeze(0).tolist()
+            y = y.squeeze(0).tolist()
+
+            index = (index + 1) % length
+            time.sleep(interval)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -262,6 +333,8 @@ def main() -> None:
         summary(args)
     elif args.command == "train":
         train(args)
+    elif args.command == "mock":
+        mock(args)
 
 
 if __name__ == "__main__":
